@@ -7,6 +7,7 @@
 
 import Foundation
 import UIKit
+import Combine
 
 enum TextFieldType {
     case email
@@ -19,7 +20,12 @@ class FormTextField: UIView, UITextFieldDelegate {
     private let textField = CustomTextField()
     private let errorLabel = UILabel()
     private let togglePasswordButton = UIButton(type: .custom)
-
+    private var heightConstraint: NSLayoutConstraint?
+    
+    private var cancellables = Set<AnyCancellable>()
+    var textPublisher = PassthroughSubject<String?, Never>()
+    var errorMessage = PassthroughSubject<String?, Never>()
+    
     var text: String? {
         return textField.text
     }
@@ -53,18 +59,26 @@ class FormTextField: UIView, UITextFieldDelegate {
             textField.layer.borderColor = borderColor.cgColor
         }
     }
+    
 
-    init(type: TextFieldType, placeholder: String) {
+    var errorFont: UIFont = UIFont.preferredFont(forTextStyle: .caption1) {
+        didSet {
+            errorLabel.font = errorFont
+        }
+    }
+
+    init(type: TextFieldType, placeholder: String, viewHeight: CGFloat = 50.0, errorFont: UIFont = UIFont.preferredFont(forTextStyle: .caption1)) {
         super.init(frame: .zero)
-        setupUI()
+        setupUI(viewHeight: viewHeight, errorFont: errorFont)
         configure(type: type, placeholder: placeholder)
+        setupBindings()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func setupUI() {
+    private func setupUI(viewHeight: CGFloat, errorFont: UIFont) {
         // TextField
         textField.layer.borderWidth = borderWidth
         textField.layer.borderColor = borderColor.cgColor
@@ -73,10 +87,11 @@ class FormTextField: UIView, UITextFieldDelegate {
         textField.backgroundColor = .secondarySystemGroupedBackground
         textField.padding = padding
         textField.delegate = self
+        textField.heightAnchor.constraint(equalToConstant: viewHeight).isActive = true
         
         // Error Label
         errorLabel.textColor = .red
-        errorLabel.font = UIFont.preferredFont(forTextStyle: .caption1)
+        errorLabel.font = errorFont
         errorLabel.translatesAutoresizingMaskIntoConstraints = false
         errorLabel.numberOfLines = 0
         errorLabel.isHidden = true
@@ -95,7 +110,9 @@ class FormTextField: UIView, UITextFieldDelegate {
             stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
             stackView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
+
     }
+
 
     private func configure(type: TextFieldType, placeholder: String) {
         textField.placeholder = placeholder
@@ -145,9 +162,34 @@ class FormTextField: UIView, UITextFieldDelegate {
         errorLabel.isHidden = true
     }
     
+    private func setupBindings() {
+        errorMessage
+            .receive(on: RunLoop.main)
+            .sink { [weak self] message in
+                if let message = message, !message.isEmpty {
+                    self?.errorLabel.text = message
+                    self?.errorLabel.isHidden = false
+                } else {
+                    self?.errorLabel.isHidden = true
+                }
+            }
+            .store(in: &cancellables)
+        
+        textPublisher
+            .receive(on: RunLoop.main)
+            .sink { [weak self] message in
+                    self?.errorLabel.isHidden = true
+            }
+            .store(in: &cancellables)
+    }
+    
     // UITextFieldDelegate Methods
     func textFieldDidBeginEditing(_ textField: UITextField) {
-        hideError()
+        errorMessage.send(nil)
+    }
+    
+    func textFieldDidChangeSelection(_ textField: UITextField) {
+        textPublisher.send(textField.text)
     }
 }
 
